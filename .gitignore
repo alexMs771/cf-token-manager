@@ -1,0 +1,8 @@
+.DS_Store
+Thumbs.db
+.env
+*.log
+/logs/
+.vscode/
+.idea/
+*.md.bak

@@ -1,0 +1,49 @@
+{
+    "name":"CF Token Manager",
+    "version":"1.0.0",
+    "author":"JWTPOC",
+    "slug":"cf-token-manager",
+    "private":true,
+    "type":"modules",
+    "shortDescription":"A complete JWT token lifecycle manager for CFML/ColdBox: issue, verify, refresh and decode access & refresh tokens with Java crypto signing.",
+    "description":"cf-token-manager extends a low-level JWT engine into a full authentication token lifecycle package. It exposes issue(), verify(), refresh() and decode() while internally handling header/payload construction, automatic expiry, access + refresh token generation and Java-based HMAC signing.",
+    "keywords":[
+        "jwt",
+        "token",
+        "authentication",
+        "access-token",
+        "refresh-token",
+        "coldbox",
+        "security"
+    ],
+    "license":[
+        {
+            "type":"MIT"
+        }
+    ],
+    "repository":{
+        "type":"git",
+        "url":"https://github.com/alexMs771/cf-token-manager"
+    },
+    "ignore":[
+        "**/.*",
+        "tests",
+        "*.md.bak"
+    ],
+    "engines":[
+        {
+            "type":"adobe",
+            "version":">=2021"
+        },
+        {
+            "type":"boxlang",
+            "version":">=1.0.0"
+        },
+        {
+            "type":"lucee",
+            "version":">=5.3"
+        }
+    ],
+    "devDependencies":{},
+    "scripts":{}
+}
