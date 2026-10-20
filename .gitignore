@@ -6,3 +6,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.md.bak
+/testbox/
+/server.json
+/server-*.json

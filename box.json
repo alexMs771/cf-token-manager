@@ -44,6 +44,16 @@
             "version":">=5.3"
         }
     ],
-    "devDependencies":{},
-    "scripts":{}
+    "devDependencies":{
+        "testbox":"^7.0.0"
+    },
+    "scripts":{
+        "test":"testbox run"
+    },
+    "testbox":{
+        "runner":"/tests/runner.cfm"
+    },
+    "installPaths":{
+        "testbox":"testbox/"
+    }
 }
