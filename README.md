@@ -173,6 +173,20 @@ moduleSettings = {
 Signing uses the JVM `javax.crypto.Mac` / `SecretKeySpec` classes, so behaviour is
 identical on Adobe ColdFusion, BoxLang and Lucee.
 
+## Testing
+
+Install the development dependencies, start a local CommandBox server, and run the
+TestBox suite:
+
+```bash
+box install
+box server start
+box run-script test
+```
+
+The suite is located under `tests/specs/unit/TokenManagerSpec.cfc` and covers token
+issuance, verification, refresh, diagnostics, role checks, and authorization.
+
 ## License
 
 MIT
