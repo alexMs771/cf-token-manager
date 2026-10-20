@@ -11,6 +11,7 @@ issue()    // mint an access + refresh token pair
 verify()   // is this token authentic, unexpired and the right type?
 refresh()  // swap a refresh token for a new access token
 decode()   // read the claims of a token
+authorize() // validate a token and enforce an RBAC role requirement
 ```
 
 Header construction, access/refresh payloads, automatic expiry and Java-based HMAC
@@ -61,6 +62,49 @@ var tokens = tokenManager.issue( { id : 101, role : "admin" } );
 
 The `id` key becomes the JWT `sub` claim; all other keys (e.g. `role`) are carried
 into the token verbatim.
+
+### Role-based access control
+
+The legacy singular `role` claim remains supported. New code may provide a `roles`
+array; the manager normalizes both forms and writes a canonical `roles` claim while
+retaining `role` for backward compatibility:
+
+```cfml
+var tokens = tokenManager.issue( {
+    id    : 101,
+    roles : [ "admin", "finance" ]
+} );
+```
+
+Simple checks return booleans:
+
+```cfml
+tokenManager.hasRole( tokens.accessToken, "admin" );
+tokenManager.hasAnyRole( tokens.accessToken, [ "admin", "manager" ] );
+tokenManager.hasAllRoles( tokens.accessToken, [ "admin", "finance" ] );
+```
+
+For protected handlers, `authorize()` validates the access token and returns its
+trusted claims when the role requirement succeeds. It throws
+`cftokenmanager.InsufficientRole` when the token is valid but lacks the required
+role, allowing the application to return HTTP 403. Invalid or expired tokens still
+produce the normal authentication failures and should result in HTTP 401.
+
+```cfml
+var claims = tokenManager.authorize( accessToken, [ "admin", "finance" ], "all" );
+```
+
+Use `diagnoseAuthorization()` when a handler needs a non-throwing result:
+
+```cfml
+var result = tokenManager.diagnoseAuthorization( accessToken, "admin" );
+// { valid : true, authorized : false, code : "INSUFFICIENT_ROLE", message : "..." }
+```
+
+Roles are signed claims, not encrypted values. The application should derive them
+from its trusted user/account record when issuing tokens. Role changes do not affect
+already-issued tokens until they expire or the application adds revocation/version
+checks.
 
 ### Verify + decode (protected route)
 

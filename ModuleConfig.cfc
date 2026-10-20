@@ -25,8 +25,8 @@ component {
 	this.title         = "CF Token Manager";
 	this.author        = "JWTPOC";
 	this.webURL        = "";
-	this.description   = "JWT token lifecycle manager: issue, verify, refresh, decode.";
-	this.version       = "1.0.0";
+	this.description   = "JWT token lifecycle manager with access, refresh, and RBAC authorization APIs.";
+	this.version       = "2.0.0";
 
 	// Module mapping + model namespace
 	this.modelNamespace = "cf-token-manager";

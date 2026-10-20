@@ -12,6 +12,7 @@
  *     tokenManager.verify( accessToken );                 // boolean
  *     tokenManager.decode( accessToken );                 // struct of claims
  *     tokenManager.refresh( refreshToken );               // { accessToken : "..." }
+ *     tokenManager.authorize( accessToken, "admin" );     // trusted claims or throws
  *
  * Responsibilities handled automatically:
  *   - Header construction        ({ typ, alg })
@@ -20,6 +21,7 @@
  *   - iat / exp / iss claims
  *   - Java HMAC signing (delegated to JWTService)
  *   - Type checking (access vs refresh)
+ *   - Role normalization and access control (RBAC)
  *
  * Control claims reserved by this package: sub, type, iat, exp, iss.
  */
@@ -107,7 +109,7 @@ component singleton accessors="true" {
 		var payload = validate( arguments.refreshToken, "refresh" );
 		var now     = epochSeconds();
 
-		var accessClaims = stripReservedClaims( payload );
+		var accessClaims = normalizeRoleClaims( stripReservedClaims( payload ) );
 		accessClaims[ "type" ] = "access";
 		accessClaims[ "iat" ]  = now;
 		accessClaims[ "exp" ]  = epoch( now + int( settings.accessTokenExpiry ) );
@@ -192,6 +194,120 @@ component singleton accessors="true" {
 		}
 	}
 
+	/**
+	 * hasRole() - non-throwing convenience check for one role.
+	 *
+	 * A false result means either that the token is invalid or that the user does
+	 * not have the requested role. Use authorize() or diagnoseAuthorization() when
+	 * the caller needs to distinguish those cases.
+	 */
+	boolean function hasRole( required string token, required string requiredRole, string type = "access" ){
+		return hasAnyRole( arguments.token, [ arguments.requiredRole ], arguments.type );
+	}
+
+	/**
+	 * hasAnyRole() - true when a valid token contains at least one requested role.
+	 */
+	boolean function hasAnyRole( required string token, required any requiredRoles, string type = "access" ){
+		try {
+			authorize( arguments.token, arguments.requiredRoles, "any", arguments.type );
+			return true;
+		} catch ( any e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * hasAllRoles() - true when a valid token contains every requested role.
+	 */
+	boolean function hasAllRoles( required string token, required any requiredRoles, string type = "access" ){
+		try {
+			authorize( arguments.token, arguments.requiredRoles, "all", arguments.type );
+			return true;
+		} catch ( any e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * authorize() - validate the token and enforce an RBAC role requirement.
+	 *
+	 * @requiredRoles A role string or array of role strings.
+	 * @mode          "any" requires one matching role; "all" requires every role.
+	 * @type          Expected token type. Authorization defaults to access tokens.
+	 * @return        Trusted token claims when authorization succeeds.
+	 * @throws        Authentication exceptions from validate(), or
+	 *                cftokenmanager.InsufficientRole when the token is valid but
+	 *                does not satisfy the role requirement.
+	 */
+	struct function authorize( required string token, required any requiredRoles, string mode = "any", string type = "access" ){
+		var claims       = validate( arguments.token, arguments.type );
+		var expectedMode = lCase( trim( arguments.mode ) );
+		var requested    = normalizeRoleList( arguments.requiredRoles, false, "required roles" );
+		var actual       = rolesFromClaims( claims );
+		var matched      = 0;
+
+		if ( !listFindNoCase( "any,all", expectedMode ) ) {
+			throw(
+				type    = "cftokenmanager.InvalidAuthorizationMode",
+				message = "Authorization mode must be [any] or [all]."
+			);
+		}
+
+		for ( var requiredRole in requested ) {
+			if ( arrayFindNoCase( actual, requiredRole ) ) {
+				matched++;
+			}
+		}
+
+		var authorized = expectedMode == "all"
+			? matched == arrayLen( requested )
+			: matched > 0;
+
+		if ( !authorized ) {
+			throw(
+				type    = "cftokenmanager.InsufficientRole",
+				message = "The token does not satisfy the required role(s): [#arrayToList( requested, ", " )#]."
+			);
+		}
+
+		return claims;
+	}
+
+	/**
+	 * diagnoseAuthorization() - non-throwing companion to authorize().
+	 *
+	 * Authentication failures remain distinguishable from authorization failures:
+	 * invalid/missing tokens should produce a 401, while a valid token without the
+	 * required role should produce a 403.
+	 */
+	struct function diagnoseAuthorization( required string token, required any requiredRoles, string mode = "any", string type = "access" ){
+		try {
+			var claims = authorize( arguments.token, arguments.requiredRoles, arguments.mode, arguments.type );
+			return {
+				"valid"      : true,
+				"authorized" : true,
+				"code"       : "AUTHORIZED",
+				"message"    : "Token is valid and authorized.",
+				"claims"     : claims
+			};
+		} catch ( cftokenmanager.MissingToken e ) {
+			return authorizationDiagnosis( false, "MISSING_TOKEN", e.message );
+		} catch ( cftokenmanager.MalformedToken e ) {
+			return authorizationDiagnosis( false, "MALFORMED_TOKEN", e.message );
+		} catch ( cftokenmanager.InvalidSignature e ) {
+			return authorizationDiagnosis( false, "INVALID_SIGNATURE", e.message );
+		} catch ( cftokenmanager.ExpiredToken e ) {
+			return authorizationDiagnosis( false, "TOKEN_EXPIRED", e.message );
+		} catch ( cftokenmanager.InvalidTokenType e ) {
+			return authorizationDiagnosis( false, "INVALID_TOKEN_TYPE", e.message );
+		} catch ( cftokenmanager.InsufficientRole e ) {
+			return authorizationDiagnosis( true, "INSUFFICIENT_ROLE", e.message );
+		} catch ( any e ) {
+			return authorizationDiagnosis( false, "INVALID_AUTHORIZATION", e.message );
+		}
+	}
+
 	/* --------------------------------------------------------------------- */
 	/* Internals                                                             */
 	/* --------------------------------------------------------------------- */
@@ -216,6 +332,7 @@ component singleton accessors="true" {
 		structDelete( base, "id" );
 
 		base = stripReservedClaims( base );
+		base = normalizeRoleClaims( base );
 
 		if ( !structKeyExists( base, "sub" ) ) {
 			throw(
@@ -225,6 +342,122 @@ component singleton accessors="true" {
 		}
 
 		return base;
+	}
+
+	/**
+	 * Normalize the legacy singular role claim and the v2 roles array into one
+	 * predictable representation. The singular role is retained for callers that
+	 * still read it, while roles is the canonical RBAC claim.
+	 */
+	private struct function normalizeRoleClaims( required struct claims ){
+		var clean      = duplicate( arguments.claims );
+		var normalized = [];
+
+		if ( structKeyExists( clean, "roles" ) ) {
+			var declaredRoles = normalizeRoleList( clean.roles, true, "roles" );
+			for ( var declaredRole in declaredRoles ) {
+				if ( !arrayFindNoCase( normalized, declaredRole ) ) {
+					arrayAppend( normalized, declaredRole );
+				}
+			}
+		}
+
+		if ( structKeyExists( clean, "role" ) ) {
+			var legacyRoles = normalizeRoleList( clean.role, true, "role" );
+			for ( var legacyRole in legacyRoles ) {
+				if ( !arrayFindNoCase( normalized, legacyRole ) ) {
+					arrayAppend( normalized, legacyRole );
+				}
+			}
+		}
+
+		if ( arrayLen( normalized ) ) {
+			clean[ "roles" ] = normalized;
+			clean[ "role" ]  = normalized[ 1 ];
+		} else {
+			structDelete( clean, "roles" );
+			structDelete( clean, "role" );
+		}
+
+		return clean;
+	}
+
+	/**
+	 * Convert a single role or an array of roles into normalized role names.
+	 */
+	private array function normalizeRoleList( required any roles, boolean allowEmpty = false, string label = "roles" ){
+		var rawRoles = isArray( arguments.roles ) ? arguments.roles : [ arguments.roles ];
+		var result   = [];
+
+		for ( var role in rawRoles ) {
+			if ( !isSimpleValue( role ) ) {
+				throw(
+					type    = "cftokenmanager.InvalidRoleClaim",
+					message = "Each value in [#arguments.label#] must be a string."
+				);
+			}
+
+			var normalizedRole = lCase( trim( toString( role ) ) );
+			if ( !len( normalizedRole ) ) {
+				if ( !arguments.allowEmpty ) {
+					throw(
+						type    = "cftokenmanager.InvalidRoleRequirement",
+						message = "At least one non-empty role is required."
+					);
+				}
+				continue;
+			}
+
+			if ( !arrayFindNoCase( result, normalizedRole ) ) {
+				arrayAppend( result, normalizedRole );
+			}
+		}
+
+		if ( !arguments.allowEmpty && !arrayLen( result ) ) {
+			throw(
+				type    = "cftokenmanager.InvalidRoleRequirement",
+				message = "At least one non-empty role is required."
+			);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Read both the canonical roles claim and the legacy role claim. This keeps
+	 * tokens issued before RBAC was added compatible with the new checks.
+	 */
+	private array function rolesFromClaims( required struct claims ){
+		var roles = [];
+
+		if ( structKeyExists( arguments.claims, "roles" ) ) {
+			var declaredRoles = normalizeRoleList( arguments.claims.roles, true, "roles" );
+			for ( var declaredRole in declaredRoles ) {
+				if ( !arrayFindNoCase( roles, declaredRole ) ) {
+					arrayAppend( roles, declaredRole );
+				}
+			}
+		}
+
+		if ( structKeyExists( arguments.claims, "role" ) ) {
+			var legacyRoles = normalizeRoleList( arguments.claims.role, true, "role" );
+			for ( var legacyRole in legacyRoles ) {
+				if ( !arrayFindNoCase( roles, legacyRole ) ) {
+					arrayAppend( roles, legacyRole );
+				}
+			}
+		}
+
+		return roles;
+	}
+
+	private struct function authorizationDiagnosis( required boolean valid, required string code, required string message ){
+		return {
+			"valid"      : arguments.valid,
+			"authorized" : false,
+			"code"       : arguments.code,
+			"message"    : arguments.message
+		};
 	}
 
 	private struct function stripReservedClaims( required struct claims ){

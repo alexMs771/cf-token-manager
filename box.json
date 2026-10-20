@@ -1,12 +1,12 @@
 {
     "name":"CF Token Manager",
-    "version":"1.0.0",
+    "version":"2.0.0",
     "author":"JWTPOC",
     "slug":"cf-token-manager",
     "private":true,
     "type":"modules",
-    "shortDescription":"A complete JWT token lifecycle manager for CFML/ColdBox: issue, verify, refresh and decode access & refresh tokens with Java crypto signing.",
-    "description":"cf-token-manager extends a low-level JWT engine into a full authentication token lifecycle package. It exposes issue(), verify(), refresh() and decode() while internally handling header/payload construction, automatic expiry, access + refresh token generation and Java-based HMAC signing.",
+    "shortDescription":"A complete JWT token lifecycle and RBAC manager for CFML/ColdBox: issue, verify, refresh, decode, and authorize access & refresh tokens with Java crypto signing.",
+    "description":"cf-token-manager extends a low-level JWT engine into a full authentication and authorization lifecycle package. It exposes issue(), verify(), refresh(), decode(), and RBAC authorization methods while internally handling header/payload construction, automatic expiry, access + refresh token generation, role normalization, and Java-based HMAC signing.",
     "keywords":[
         "jwt",
         "token",
