@@ -7,11 +7,14 @@ developer to build payloads, expiry and refresh flows by hand. `cf-token-manager
 wraps that low-level engine with an authentication-aware API:
 
 ```cfml
-issue()    // mint an access + refresh token pair
-verify()   // is this token authentic, unexpired and the right type?
-refresh()  // swap a refresh token for a new access token
-decode()   // read the claims of a token
-authorize() // validate a token and enforce an RBAC role requirement
+generateTokens()        // mint an access + refresh token pair
+isTokenValid()           // is this token authentic, unexpired and the right type?
+refreshAccessToken()     // swap a refresh token for a new access token
+decode()                 // read the claims of a token
+validate()               // strictly validate and return trusted claims
+inspectToken()           // explain why a token is valid or rejected
+authorize()              // validate a token and enforce an RBAC role requirement
+inspectAuthorization()   // explain authentication versus authorization results
 ```
 
 Header construction, access/refresh payloads, automatic expiry and Java-based HMAC
@@ -20,7 +23,7 @@ signing are all handled internally.
 ## Architecture
 
 ```
-TokenManager.cfc   ← public lifecycle API (issue/verify/refresh/decode)
+TokenManager.cfc   ← public lifecycle API (generate/validate/refresh/decode/inspect)
         │
         ▼
 JWTService.cfc     ← internal JWT engine (encode/decode/verifySignature + Java crypto)
@@ -53,7 +56,7 @@ property name="tokenManager" inject="TokenManager@cf-token-manager";
 ### Issue tokens (login)
 
 ```cfml
-var tokens = tokenManager.issue( { id : 101, role : "admin" } );
+var tokens = tokenManager.generateTokens( { id : 101, role : "admin" } );
 // {
 //   "accessToken"  : "eyJ0eX...",   // type=access,  exp=+15m
 //   "refreshToken" : "eyJ0eX..."    // type=refresh, exp=+30d
@@ -70,7 +73,7 @@ array; the manager normalizes both forms and writes a canonical `roles` claim wh
 retaining `role` for backward compatibility:
 
 ```cfml
-var tokens = tokenManager.issue( {
+var tokens = tokenManager.generateTokens( {
     id    : 101,
     roles : [ "admin", "finance" ]
 } );
@@ -94,10 +97,10 @@ produce the normal authentication failures and should result in HTTP 401.
 var claims = tokenManager.authorize( accessToken, [ "admin", "finance" ], "all" );
 ```
 
-Use `diagnoseAuthorization()` when a handler needs a non-throwing result:
+Use `inspectAuthorization()` when a handler needs a non-throwing result:
 
 ```cfml
-var result = tokenManager.diagnoseAuthorization( accessToken, "admin" );
+var result = tokenManager.inspectAuthorization( accessToken, "admin" );
 // { valid : true, authorized : false, code : "INSUFFICIENT_ROLE", message : "..." }
 ```
 
@@ -109,7 +112,7 @@ checks.
 ### Verify + decode (protected route)
 
 ```cfml
-if ( tokenManager.verify( accessToken ) ) {           // boolean, type defaults to "access"
+if ( tokenManager.isTokenValid( accessToken ) ) {     // boolean, type defaults to "access"
     var claims = tokenManager.decode( accessToken );  // { sub, role, type, iat, exp, iss }
 }
 ```
@@ -117,17 +120,18 @@ if ( tokenManager.verify( accessToken ) ) {           // boolean, type defaults 
 ### Refresh (access token expired)
 
 ```cfml
-var fresh = tokenManager.refresh( refreshToken );
+var fresh = tokenManager.refreshAccessToken( refreshToken );
 // { "accessToken" : "<new access jwt>" }
 ```
 
 ### Precise error handling
 
-`verify()` is a simple boolean. When you need to tell the client *why* a token was
-rejected, use `diagnose()` (non-throwing) or `validate()` (throws typed exceptions):
+`isTokenValid()` is a simple boolean. When you need to tell the client *why* a token
+was rejected, use `inspectToken()` (non-throwing) or `validate()` (throws typed
+exceptions):
 
 ```cfml
-var result = tokenManager.diagnose( token );  // expects an access token
+var result = tokenManager.inspectToken( token );  // expects an access token
 // { valid : false, code : "TOKEN_EXPIRED", message : "..." }
 ```
 
