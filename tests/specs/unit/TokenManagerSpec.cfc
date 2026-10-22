@@ -15,8 +15,8 @@ component extends="testbox.system.BaseSpec" {
 
 	function run() {
 		describe( "TokenManager", function(){
-			it( "issues access and refresh tokens with normalized claims", function(){
-				var pair = variables.tokenManager.issue({
+			it( "generates access and refresh tokens with normalized claims", function(){
+				var pair = variables.tokenManager.generateTokens({
 					id    : "user-101",
 					roles : [ "Admin", "finance", "admin" ]
 				});
@@ -35,19 +35,19 @@ component extends="testbox.system.BaseSpec" {
 			} );
 
 			it( "verifies tokens and rejects the wrong token type", function(){
-				var pair = variables.tokenManager.issue({ id : "user-102" });
+				var pair = variables.tokenManager.generateTokens({ id : "user-102" });
 
-				expect( variables.tokenManager.verify( pair.accessToken ) ).toBeTrue();
-				expect( variables.tokenManager.verify( pair.refreshToken ) ).toBeFalse();
-				expect( variables.tokenManager.verify( pair.refreshToken, "refresh" ) ).toBeTrue();
+				expect( variables.tokenManager.isTokenValid( pair.accessToken ) ).toBeTrue();
+				expect( variables.tokenManager.isTokenValid( pair.refreshToken ) ).toBeFalse();
+				expect( variables.tokenManager.isTokenValid( pair.refreshToken, "refresh" ) ).toBeTrue();
 			} );
 
 			it( "refreshes a token while preserving roles", function(){
-				var pair = variables.tokenManager.issue({
+				var pair = variables.tokenManager.generateTokens({
 					id    : "user-103",
 					roles : [ "admin", "finance" ]
 				});
-				var refreshed = variables.tokenManager.refresh( pair.refreshToken );
+				var refreshed = variables.tokenManager.refreshAccessToken( pair.refreshToken );
 				var claims    = variables.tokenManager.validate( refreshed.accessToken );
 
 				expect( claims.type ).toBe( "access" );
@@ -56,15 +56,15 @@ component extends="testbox.system.BaseSpec" {
 				expect( claims.roles[ 2 ] ).toBe( "finance" );
 			} );
 
-			it( "diagnoses invalid tokens without throwing", function(){
-				var result = variables.tokenManager.diagnose( "not.a.valid-token" );
+			it( "inspects invalid tokens without throwing", function(){
+				var result = variables.tokenManager.inspectToken( "not.a.valid-token" );
 
 				expect( result.valid ).toBeFalse();
 				expect( result.code ).toBe( "INVALID_SIGNATURE" );
 			} );
 
 			it( "supports single, any, and all role checks", function(){
-				var pair = variables.tokenManager.issue({
+				var pair = variables.tokenManager.generateTokens({
 					id    : "admin-101",
 					roles : [ "admin", "finance" ]
 				});
@@ -76,7 +76,7 @@ component extends="testbox.system.BaseSpec" {
 			} );
 
 			it( "returns trusted claims when authorization succeeds", function(){
-				var pair   = variables.tokenManager.issue({ id : "admin-102", role : "admin" });
+				var pair   = variables.tokenManager.generateTokens({ id : "admin-102", role : "admin" });
 				var claims = variables.tokenManager.authorize( pair.accessToken, "admin" );
 
 				expect( claims.sub ).toBe( "admin-102" );
@@ -84,9 +84,9 @@ component extends="testbox.system.BaseSpec" {
 			} );
 
 			it( "distinguishes insufficient role from invalid authentication", function(){
-				var pair    = variables.tokenManager.issue({ id : "user-104", role : "employee" });
-				var denied  = variables.tokenManager.diagnoseAuthorization( pair.accessToken, "admin" );
-				var invalid = variables.tokenManager.diagnoseAuthorization( "not.a.valid-token", "admin" );
+				var pair    = variables.tokenManager.generateTokens({ id : "user-104", role : "employee" });
+				var denied  = variables.tokenManager.inspectAuthorization( pair.accessToken, "admin" );
+				var invalid = variables.tokenManager.inspectAuthorization( "not.a.valid-token", "admin" );
 
 				expect( denied.valid ).toBeTrue();
 				expect( denied.authorized ).toBeFalse();
@@ -97,8 +97,8 @@ component extends="testbox.system.BaseSpec" {
 			} );
 
 			it( "rejects a refresh token for access-token authorization", function(){
-				var pair   = variables.tokenManager.issue({ id : "user-105", role : "admin" });
-				var result = variables.tokenManager.diagnoseAuthorization( pair.refreshToken, "admin" );
+				var pair   = variables.tokenManager.generateTokens({ id : "user-105", role : "admin" });
+				var result = variables.tokenManager.inspectAuthorization( pair.refreshToken, "admin" );
 
 				expect( result.valid ).toBeFalse();
 				expect( result.authorized ).toBeFalse();

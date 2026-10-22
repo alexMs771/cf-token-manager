@@ -6,12 +6,12 @@
  *
  *     property name="tokenManager" inject="TokenManager@cf-token-manager";
  *
- *     var tokens = tokenManager.issue( { id : 101, role : "admin" } );
+	 *     var tokens = tokenManager.generateTokens( { id : 101, role : "admin" } );
  *     // → { accessToken : "...", refreshToken : "..." }
  *
- *     tokenManager.verify( accessToken );                 // boolean
+	 *     tokenManager.isTokenValid( accessToken );           // boolean
  *     tokenManager.decode( accessToken );                 // struct of claims
- *     tokenManager.refresh( refreshToken );               // { accessToken : "..." }
+	 *     tokenManager.refreshAccessToken( refreshToken );    // { accessToken : "..." }
  *     tokenManager.authorize( accessToken, "admin" );     // trusted claims or throws
  *
  * Responsibilities handled automatically:
@@ -40,7 +40,7 @@ component singleton accessors="true" {
 	/* --------------------------------------------------------------------- */
 
 	/**
-	 * issue() — mint a fresh access + refresh token pair for a subject.
+	 * generateTokens() — mint a fresh access + refresh token pair for a subject.
 	 *
 	 * @subject A struct of business claims, e.g. { id : 101, role : "admin" }.
 	 *          An `id` key (or `sub`) becomes the JWT subject ("sub"). Every other
@@ -48,7 +48,7 @@ component singleton accessors="true" {
 	 *
 	 * @return  { accessToken : "<jwt>", refreshToken : "<jwt>" }
 	 */
-	struct function issue( required struct subject ){
+	struct function generateTokens( required struct subject ){
 		var base = normalizeSubject( arguments.subject );
 		var now  = epochSeconds();
 
@@ -73,13 +73,13 @@ component singleton accessors="true" {
 	}
 
 	/**
-	 * verify() — boolean check that a token is authentic, unexpired and of the
+	 * isTokenValid() — boolean check that a token is authentic, unexpired and of the
 	 * expected type. Never throws.
 	 *
 	 * @token A JWT string.
 	 * @type  Expected token type: "access" (default) or "refresh".
 	 */
-	boolean function verify( required string token, string type = "access" ){
+	boolean function isTokenValid( required string token, string type = "access" ){
 		try {
 			validate( arguments.token, arguments.type );
 			return true;
@@ -90,7 +90,7 @@ component singleton accessors="true" {
 
 	/**
 	 * decode() — return the claims struct of a token WITHOUT verifying it.
-	 * Use verify() first if you need to trust the result.
+	 * Use isTokenValid() first if you need to trust the result.
 	 *
 	 * @token A JWT string.
 	 */
@@ -99,13 +99,13 @@ component singleton accessors="true" {
 	}
 
 	/**
-	 * refresh() — exchange a valid refresh token for a brand-new access token.
+	 * refreshAccessToken() — exchange a valid refresh token for a brand-new access token.
 	 *
 	 * @refreshToken A JWT previously issued as the refresh token.
 	 * @return       { accessToken : "<new jwt>" }
 	 * @throws       cftokenmanager.* when the refresh token is invalid/expired/wrong type.
 	 */
-	struct function refresh( required string refreshToken ){
+	struct function refreshAccessToken( required string refreshToken ){
 		var payload = validate( arguments.refreshToken, "refresh" );
 		var now     = epochSeconds();
 
@@ -170,12 +170,12 @@ component singleton accessors="true" {
 	}
 
 	/**
-	 * diagnose() — non-throwing companion to validate(). Returns a struct describing
+	 * inspectToken() — non-throwing companion to validate(). Returns a struct describing
 	 * the verification outcome so handlers can return clean JSON error bodies.
 	 *
 	 * @return { valid : boolean, code : "VALID|MISSING_TOKEN|MALFORMED_TOKEN|INVALID_SIGNATURE|TOKEN_EXPIRED|INVALID_TOKEN_TYPE", message : "..." }
 	 */
-	struct function diagnose( required string token, string type = "access" ){
+	struct function inspectToken( required string token, string type = "access" ){
 		try {
 			validate( arguments.token, arguments.type );
 			return { "valid" : true, "code" : "VALID", "message" : "Token is valid." };
@@ -198,7 +198,7 @@ component singleton accessors="true" {
 	 * hasRole() - non-throwing convenience check for one role.
 	 *
 	 * A false result means either that the token is invalid or that the user does
-	 * not have the requested role. Use authorize() or diagnoseAuthorization() when
+	 * not have the requested role. Use authorize() or inspectAuthorization() when
 	 * the caller needs to distinguish those cases.
 	 */
 	boolean function hasRole( required string token, required string requiredRole, string type = "access" ){
@@ -275,13 +275,13 @@ component singleton accessors="true" {
 	}
 
 	/**
-	 * diagnoseAuthorization() - non-throwing companion to authorize().
+	 * inspectAuthorization() - non-throwing companion to authorize().
 	 *
 	 * Authentication failures remain distinguishable from authorization failures:
 	 * invalid/missing tokens should produce a 401, while a valid token without the
 	 * required role should produce a 403.
 	 */
-	struct function diagnoseAuthorization( required string token, required any requiredRoles, string mode = "any", string type = "access" ){
+	struct function inspectAuthorization( required string token, required any requiredRoles, string mode = "any", string type = "access" ){
 		try {
 			var claims = authorize( arguments.token, arguments.requiredRoles, arguments.mode, arguments.type );
 			return {
@@ -337,7 +337,7 @@ component singleton accessors="true" {
 		if ( !structKeyExists( base, "sub" ) ) {
 			throw(
 				type    = "cftokenmanager.InvalidSubject",
-				message = "issue() requires the subject struct to contain an `id` or `sub` key."
+				message = "generateTokens() requires the subject struct to contain an `id` or `sub` key."
 			);
 		}
 
